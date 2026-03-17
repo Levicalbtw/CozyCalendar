@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/* =============================================
+   COZY CALENDAR — Global Design Tokens
+   Warm, tactile, scrapbook aesthetic
+   ============================================= */
+
+:root {
+  /* === Paper & Ink === */
+  --paper: #FAF9F6;
+  --paper-warm: #F5F0E8;
+  --paper-aged: #EDE5D8;
+  --ink: #2C2A29;
+  --ink-muted: #7A7068;
+  --ink-faint: #B8B0A4;
+
+  /* === Warm Accent Palette === */
+  --blush: #E8B4A0;
+  --sage: #A8BDA8;
+  --lavender: #C4B4D4;
+  --honey: #D4A853;
+  --terracotta: #C4714F;
+
+  /* === Surfaces === */
+  --surface: var(--paper);
+  --surface-raised: #FFFFFF;
+  --border-soft: #DDD6CC;
+
+  /* Legacy vars for compatibility */
+  --background: var(--paper);
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-paper: var(--paper);
+  --color-paper-warm: var(--paper-warm);
+  --color-paper-aged: var(--paper-aged);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-blush: var(--blush);
+  --color-sage: var(--sage);
+  --color-lavender: var(--lavender);
+  --color-honey: var(--honey);
+  --color-terracotta: var(--terracotta);
+  --color-border-soft: var(--border-soft);
+
+  --font-sans: var(--font-quicksand);
+  --font-hand: var(--font-caveat);
+}
+
+/* =============================================
+   BASE STYLES
+   ============================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-quicksand), 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* =============================================
+   PAPER TEXTURE UTILITY
+   A subtle noise texture for the scrapbook feel
+   ============================================= */
+.paper-texture {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 150px 150px;
+}
+
+/* =============================================
+   SCRAPBOOK HELPERS
+   ============================================= */
+
+/* Subtle drop shadow that looks like a physical paper object */
+.shadow-paper {
+  box-shadow: 2px 3px 10px rgba(44, 42, 41, 0.08), 0 1px 3px rgba(44, 42, 41, 0.06);
+}
+
+.shadow-sticker {
+  box-shadow: 3px 4px 12px rgba(44, 42, 41, 0.15), 0 1px 4px rgba(44, 42, 41, 0.1);
+}
+
+/* Handwritten text style */
+.font-hand {
+  font-family: var(--font-caveat), cursive;
+}
