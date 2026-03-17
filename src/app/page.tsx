@@ -1,34 +1,40 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, Feather, Plus, Sticker, LogOut, Trash2 } from 'lucide-react'
-import { getEvents, upsertEvent, getJournal, saveJournal, getStickers, addSticker, updateStickerPosition, removeSticker } from './actions'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ChevronLeft, ChevronRight, Feather, Plus, Sticker, LogOut, Trash2, Palette, Menu, X } from 'lucide-react'
+import { getEvents, upsertEvent, getJournal, saveJournal, getStickers, addSticker, updateStickerPosition, removeSticker, getTheme, saveTheme } from './actions'
 import { signOut } from './login/actions'
 
-// --- Helpers ---
+// --- Constants ---
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const TIME_SLOTS = ['9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM', '6:00 PM']
+const STICKER_PALETTE = ['☕','🌿','🌸','📚','✨','🎵','🍂','🕯️','🌙','💌','🧸','🎨','📝','🍰','🌻','🦋']
 
-const STICKER_PALETTE = [
-  '☕', '🌿', '🌸', '📚', '✨', '🎵', '🍂', '🕯️',
-  '🌙', '💌', '🧸', '🎨', '📝', '🍰', '🌻', '🦋',
-]
+const THEMES: Record<string, { label: string; emoji: string; paper: string; paperWarm: string; paperAged: string; ink: string; inkMuted: string; accent: string }> = {
+  cream:     { label: 'Cream',     emoji: '☁️', paper: '#FAF9F6', paperWarm: '#F5F0E8', paperAged: '#EDE5D8', ink: '#2C2A29', inkMuted: '#7A7068', accent: '#C4714F' },
+  parchment: { label: 'Parchment', emoji: '📜', paper: '#F0E6D3', paperWarm: '#E8DABE', paperAged: '#DED0B8', ink: '#3A3228', inkMuted: '#786A58', accent: '#A67B4B' },
+  rose:      { label: 'Rose',      emoji: '🌸', paper: '#FDF2F4', paperWarm: '#F8E4E8', paperAged: '#F0D4DA', ink: '#3A2028', inkMuted: '#8A6070', accent: '#C4607A' },
+  sage:      { label: 'Sage',      emoji: '🌿', paper: '#F2F5F0', paperWarm: '#E4EAE0', paperAged: '#D4DCD0', ink: '#202A20', inkMuted: '#607060', accent: '#5A8A5A' },
+  midnight:  { label: 'Midnight',  emoji: '🌙', paper: '#1A1A2E', paperWarm: '#16213E', paperAged: '#0F3460', ink: '#E0D8D0', inkMuted: '#A098A0', accent: '#E8B4A0' },
+}
 
-function formatDate(year: number, month: number, day: number) {
-  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+function formatDate(y: number, m: number, d: number) {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 function getDaysInMonth(y: number, m: number) { return new Date(y, m + 1, 0).getDate() }
 function getFirstDayOfMonth(y: number, m: number) { return new Date(y, m, 1).getDay() }
 
-// --- Types ---
-interface StickerPlacement {
-  id: string
-  sticker_name: string
-  x: number
-  y: number
+// Page-flip variants
+const pageFlip = {
+  initial: { rotateY: -90, opacity: 0, transformOrigin: 'left center' },
+  animate: { rotateY: 0, opacity: 1, transformOrigin: 'left center', transition: { duration: 0.5, ease: 'easeOut' as const } },
+  exit:    { rotateY: 90, opacity: 0, transformOrigin: 'right center', transition: { duration: 0.3, ease: 'easeIn' as const } },
 }
+
+// --- Types ---
+interface StickerPlacement { id: string; sticker_name: string; x: number; y: number }
 
 // --- Sub-components ---
 
@@ -37,15 +43,9 @@ function CalendarHeader({ month, year, onPrev, onNext }: {
 }) {
   return (
     <div className="flex items-center justify-between mb-5 px-1">
-      <button onClick={onPrev} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--paper-aged)] text-[var(--ink-muted)] transition-colors">
-        <ChevronLeft size={18} />
-      </button>
-      <h2 className="font-hand text-2xl text-[var(--ink)] tracking-wide">
-        {MONTHS[month]} <span className="text-[var(--honey)]">{year}</span>
-      </h2>
-      <button onClick={onNext} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--paper-aged)] text-[var(--ink-muted)] transition-colors">
-        <ChevronRight size={18} />
-      </button>
+      <button onClick={onPrev} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--paper-aged)] text-[var(--ink-muted)] transition-colors"><ChevronLeft size={18} /></button>
+      <h2 className="font-hand text-2xl text-[var(--ink)] tracking-wide">{MONTHS[month]} <span className="text-[var(--honey)]">{year}</span></h2>
+      <button onClick={onNext} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--paper-aged)] text-[var(--ink-muted)] transition-colors"><ChevronRight size={18} /></button>
     </div>
   )
 }
@@ -62,9 +62,7 @@ function CalendarGrid({ year, month, selectedDay, onSelect }: {
   return (
     <div>
       <div className="grid grid-cols-7 mb-2">
-        {DAYS.map(d => (
-          <div key={d} className="text-center text-xs font-semibold text-[var(--ink-faint)] py-1 uppercase tracking-widest">{d}</div>
-        ))}
+        {DAYS.map(d => <div key={d} className="text-center text-xs font-semibold text-[var(--ink-faint)] py-1 uppercase tracking-widest">{d}</div>)}
       </div>
       <div className="grid grid-cols-7 gap-1">
         {cells.map((day, idx) => {
@@ -85,29 +83,20 @@ function CalendarGrid({ year, month, selectedDay, onSelect }: {
   )
 }
 
-function EventSlot({ time, initialTitle, onSave }: {
-  time: string; initialTitle: string; onSave: (title: string) => void
-}) {
+function EventSlot({ time, initialTitle, onSave }: { time: string; initialTitle: string; onSave: (title: string) => void }) {
   const [value, setValue] = useState(initialTitle)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   useEffect(() => { setValue(initialTitle) }, [initialTitle])
-
   function handleChange(v: string) {
     setValue(v)
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => onSave(v), 800)
   }
-
   return (
     <div className="flex items-center gap-3 group">
       <span className="text-xs text-[var(--ink-faint)] w-16 flex-shrink-0">{time}</span>
-      <input
-        value={value}
-        onChange={e => handleChange(e.target.value)}
-        placeholder="Add event..."
-        className="flex-1 h-7 rounded-lg border border-dashed border-[var(--border-soft)] bg-[var(--paper-warm)] group-hover:border-[var(--blush)] focus:border-[var(--blush)] transition-colors px-2 text-xs text-[var(--ink)] placeholder-[var(--ink-faint)] outline-none"
-      />
+      <input value={value} onChange={e => handleChange(e.target.value)} placeholder="Add event..."
+        className="flex-1 h-7 rounded-lg border border-dashed border-[var(--border-soft)] bg-[var(--paper-warm)] group-hover:border-[var(--blush)] focus:border-[var(--blush)] transition-colors px-2 text-xs text-[var(--ink)] placeholder-[var(--ink-faint)] outline-none" />
     </div>
   )
 }
@@ -116,7 +105,6 @@ function DailyCanvas({ day, month, year }: { day: number; month: number; year: n
   const dateStr = formatDate(year, month, day)
   const dateLabel = new Date(year, month, day).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   const canvasRef = useRef<HTMLDivElement>(null)
-
   const [events, setEvents] = useState<Record<string, string>>({})
   const [journal, setJournal] = useState('')
   const [mood, setMood] = useState<string | null>(null)
@@ -124,14 +112,9 @@ function DailyCanvas({ day, month, year }: { day: number; month: number; year: n
   const [showPalette, setShowPalette] = useState(false)
   const journalTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load data when date changes
   useEffect(() => {
     const loadData = async () => {
-      const [evts, jrnl, stks] = await Promise.all([
-        getEvents(dateStr),
-        getJournal(dateStr),
-        getStickers(dateStr),
-      ])
+      const [evts, jrnl, stks] = await Promise.all([getEvents(dateStr), getJournal(dateStr), getStickers(dateStr)])
       const eventMap: Record<string, string> = {}
       evts.forEach((e: { time: string; title: string }) => { eventMap[e.time] = e.title })
       setEvents(eventMap)
@@ -142,78 +125,50 @@ function DailyCanvas({ day, month, year }: { day: number; month: number; year: n
     loadData()
   }, [dateStr])
 
-  const handleEventSave = useCallback(async (time: string, title: string) => {
-    await upsertEvent(dateStr, time, title)
-  }, [dateStr])
+  const handleEventSave = useCallback(async (time: string, title: string) => { await upsertEvent(dateStr, time, title) }, [dateStr])
 
   function handleJournalChange(content: string) {
     setJournal(content)
     if (journalTimer.current) clearTimeout(journalTimer.current)
-    journalTimer.current = setTimeout(() => {
-      saveJournal(dateStr, content, mood || undefined)
-    }, 1000)
+    journalTimer.current = setTimeout(() => { saveJournal(dateStr, content, mood || undefined) }, 1000)
   }
-
-  async function handleMood(m: string) {
-    setMood(m)
-    await saveJournal(dateStr, journal, m)
-  }
-
+  async function handleMood(m: string) { setMood(m); await saveJournal(dateStr, journal, m) }
   async function handleAddSticker(emoji: string) {
     const result = await addSticker(dateStr, emoji, 50, 50)
     if (result) setStickers(prev => [...prev, result as StickerPlacement])
     setShowPalette(false)
   }
-
   async function handleStickerDragEnd(id: string, x: number, y: number) {
     await updateStickerPosition(id, x, y)
     setStickers(prev => prev.map(s => s.id === id ? { ...s, x, y } : s))
   }
-
   async function handleRemoveSticker(id: string) {
     await removeSticker(id)
     setStickers(prev => prev.filter(s => s.id !== id))
   }
 
   return (
-    <motion.div key={dateStr} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-      className="h-full flex flex-col relative" ref={canvasRef}>
-
-      {/* Stickers float on top */}
+    <div className="h-full flex flex-col relative" ref={canvasRef}>
+      {/* Stickers */}
       {stickers.map(s => (
-        <motion.div
-          key={s.id}
-          drag
-          dragMomentum={false}
+        <motion.div key={s.id} drag dragMomentum={false}
           onDragEnd={(_, info) => {
-            const el = canvasRef.current
-            if (!el) return
+            const el = canvasRef.current; if (!el) return
             const rect = el.getBoundingClientRect()
-            const x = ((info.point.x - rect.left) / rect.width) * 100
-            const y = ((info.point.y - rect.top) / rect.height) * 100
-            handleStickerDragEnd(s.id, x, y)
+            handleStickerDragEnd(s.id, ((info.point.x - rect.left) / rect.width) * 100, ((info.point.y - rect.top) / rect.height) * 100)
           }}
           initial={{ x: 0, y: 0 }}
-          style={{
-            position: 'absolute',
-            left: `${s.x}%`,
-            top: `${s.y}%`,
-            transform: 'translate(-50%, -50%)',
-            zIndex: 20,
-          }}
-          className="cursor-grab active:cursor-grabbing group"
-        >
+          style={{ position: 'absolute', left: `${s.x}%`, top: `${s.y}%`, transform: 'translate(-50%, -50%)', zIndex: 20 }}
+          className="cursor-grab active:cursor-grabbing group">
           <span className="text-3xl select-none">{s.sticker_name}</span>
           <button onClick={() => handleRemoveSticker(s.id)}
-            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-[var(--terracotta)] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <Trash2 size={10} />
-          </button>
+            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-[var(--terracotta)] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={10} /></button>
         </motion.div>
       ))}
 
       {/* Date Header */}
       <div className="mb-4 pb-3 border-b border-[var(--border-soft)] relative z-10">
-        <p className="font-hand text-4xl text-[var(--ink)] leading-tight">{dateLabel}</p>
+        <p className="font-hand text-3xl md:text-4xl text-[var(--ink)] leading-tight">{dateLabel}</p>
         <p className="text-xs text-[var(--ink-muted)] mt-1 font-medium tracking-wider uppercase">Daily Page</p>
       </div>
 
@@ -224,9 +179,7 @@ function DailyCanvas({ day, month, year }: { day: number; month: number; year: n
           <span className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider">Schedule</span>
         </div>
         <div className="space-y-1.5">
-          {TIME_SLOTS.map(time => (
-            <EventSlot key={time} time={time} initialTitle={events[time] || ''} onSave={title => handleEventSave(time, title)} />
-          ))}
+          {TIME_SLOTS.map(time => <EventSlot key={time} time={time} initialTitle={events[time] || ''} onSave={title => handleEventSave(time, title)} />)}
         </div>
       </div>
 
@@ -236,52 +189,52 @@ function DailyCanvas({ day, month, year }: { day: number; month: number; year: n
           <div className="w-5 h-5 rounded-full bg-[var(--lavender)] flex items-center justify-center"><Feather size={12} className="text-white" /></div>
           <span className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider">Journal</span>
         </div>
-
-        {/* Mood Picker */}
-        <div className="flex gap-1.5 mb-3">
-          {['☀️ Bright', '🌧️ Mellow', '🌿 Calm', '🔥 Energized', '🌙 Quiet'].map(v => {
-            const isActive = mood === v
-            return (
-              <button key={v} onClick={() => handleMood(v)}
-                className={`text-xs px-2.5 py-1 rounded-full border transition-colors
-                  ${isActive ? 'bg-[var(--blush)] text-white border-[var(--blush)]' : 'bg-[var(--paper-aged)] text-[var(--ink-muted)] border-[var(--border-soft)] hover:bg-[var(--blush)] hover:text-white'}`}>
-                {v}
-              </button>
-            )
-          })}
+        <div className="flex gap-1.5 mb-3 flex-wrap">
+          {['☀️ Bright', '🌧️ Mellow', '🌿 Calm', '🔥 Energized', '🌙 Quiet'].map(v => (
+            <button key={v} onClick={() => handleMood(v)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors
+                ${mood === v ? 'bg-[var(--blush)] text-white border-[var(--blush)]' : 'bg-[var(--paper-aged)] text-[var(--ink-muted)] border-[var(--border-soft)] hover:bg-[var(--blush)] hover:text-white'}`}>{v}</button>
+          ))}
         </div>
-
-        <textarea
-          value={journal}
-          onChange={e => handleJournalChange(e.target.value)}
+        <textarea value={journal} onChange={e => handleJournalChange(e.target.value)}
           placeholder="How are you feeling today? What's on your mind..."
-          className="flex-1 w-full resize-none bg-[var(--paper-warm)] rounded-xl border border-[var(--border-soft)] p-4 font-hand text-lg text-[var(--ink)] placeholder-[var(--ink-faint)] outline-none focus:border-[var(--blush)] transition-colors leading-relaxed min-h-[200px]"
-        />
+          className="flex-1 w-full resize-none bg-[var(--paper-warm)] rounded-xl border border-[var(--border-soft)] p-4 font-hand text-lg text-[var(--ink)] placeholder-[var(--ink-faint)] outline-none focus:border-[var(--blush)] transition-colors leading-relaxed min-h-[200px]" />
       </div>
 
-      {/* Floating Sticker Palette */}
+      {/* Sticker Palette */}
       {showPalette && (
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
           className="absolute bottom-4 right-4 bg-[var(--surface-raised)] rounded-2xl shadow-sticker border border-[var(--border-soft)] p-4 z-30 w-52">
           <p className="font-hand text-sm text-[var(--ink-muted)] mb-2">Pick a sticker</p>
           <div className="grid grid-cols-4 gap-2">
-            {STICKER_PALETTE.map(emoji => (
-              <button key={emoji} onClick={() => handleAddSticker(emoji)}
-                className="text-2xl hover:scale-125 transition-transform w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[var(--paper-warm)]">
-                {emoji}
-              </button>
-            ))}
+            {STICKER_PALETTE.map(emoji => <button key={emoji} onClick={() => handleAddSticker(emoji)} className="text-2xl hover:scale-125 transition-transform w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[var(--paper-warm)]">{emoji}</button>)}
           </div>
         </motion.div>
       )}
-
-      {/* Sticker Toggle FAB */}
       <button onClick={() => setShowPalette(!showPalette)}
         className="absolute bottom-4 right-4 z-20 w-12 h-12 rounded-full bg-[var(--honey)] text-white flex items-center justify-center shadow-sticker hover:bg-[var(--terracotta)] transition-colors"
-        style={showPalette ? { right: '15.5rem' } : {}}>
-        <Sticker size={20} />
-      </button>
-    </motion.div>
+        style={showPalette ? { right: '15.5rem' } : {}}><Sticker size={20} /></button>
+    </div>
+  )
+}
+
+function ThemePicker({ currentTheme, onSelect }: { currentTheme: string; onSelect: (t: string) => void }) {
+  return (
+    <div className="bg-[var(--paper-warm)] rounded-2xl p-4 border border-[var(--border-soft)]">
+      <div className="flex items-center gap-2 mb-3">
+        <Palette size={14} className="text-[var(--ink-muted)]" />
+        <p className="font-hand text-base text-[var(--ink-muted)]">Theme</p>
+      </div>
+      <div className="grid grid-cols-5 gap-1.5">
+        {Object.entries(THEMES).map(([key, t]) => (
+          <button key={key} onClick={() => onSelect(key)}
+            className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${currentTheme === key ? 'ring-2 ring-[var(--terracotta)] bg-[var(--paper-aged)]' : 'hover:bg-[var(--paper-aged)]'}`}>
+            <div className="w-6 h-6 rounded-full border border-[var(--border-soft)]" style={{ backgroundColor: t.paper }} />
+            <span className="text-[10px] text-[var(--ink-muted)]">{t.emoji}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -291,42 +244,83 @@ export default function Home() {
   const [year, setYear] = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [selectedDay, setSelectedDay] = useState(today.getDate())
+  const [theme, setTheme] = useState('cream')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Load theme on mount
+  useEffect(() => { getTheme().then(t => setTheme(t)) }, [])
+
+  // Apply theme CSS vars
+  useEffect(() => {
+    const t = THEMES[theme] || THEMES.cream
+    const root = document.documentElement
+    root.style.setProperty('--paper', t.paper)
+    root.style.setProperty('--paper-warm', t.paperWarm)
+    root.style.setProperty('--paper-aged', t.paperAged)
+    root.style.setProperty('--ink', t.ink)
+    root.style.setProperty('--ink-muted', t.inkMuted)
+    root.style.setProperty('--terracotta', t.accent)
+    root.style.setProperty('--surface-raised', theme === 'midnight' ? '#1E1E38' : '#FFFFFF')
+    root.style.setProperty('--border-soft', theme === 'midnight' ? '#2A2A4A' : '#DDD6CC')
+    root.style.setProperty('--ink-faint', theme === 'midnight' ? '#606080' : '#B8B0A4')
+  }, [theme])
+
+  async function handleThemeChange(t: string) {
+    setTheme(t)
+    await saveTheme(t)
+  }
 
   const prevMonth = () => { if (month === 0) { setMonth(11); setYear(y => y - 1) } else setMonth(m => m - 1) }
   const nextMonth = () => { if (month === 11) { setMonth(0); setYear(y => y + 1) } else setMonth(m => m + 1) }
 
   return (
-    <div className="min-h-screen bg-[var(--paper)] paper-texture">
+    <div className="min-h-screen bg-[var(--paper)] paper-texture transition-colors duration-500">
       {/* Top Nav */}
-      <header className="flex items-center justify-between px-8 py-5 border-b border-[var(--border-soft)]">
+      <header className="flex items-center justify-between px-4 md:px-8 py-4 md:py-5 border-b border-[var(--border-soft)]">
         <div className="flex items-center gap-3">
+          {/* Mobile hamburger */}
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden w-9 h-9 rounded-xl flex items-center justify-center text-[var(--ink-muted)] hover:bg-[var(--paper-aged)] transition-colors">
+            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
           <div className="w-9 h-9 rounded-xl bg-[var(--terracotta)] flex items-center justify-center shadow-paper">
             <span className="text-white text-lg">☁️</span>
           </div>
-          <h1 className="font-hand text-2xl text-[var(--ink)] tracking-wide">Cozy Calendar</h1>
+          <h1 className="font-hand text-xl md:text-2xl text-[var(--ink)] tracking-wide">Cozy Calendar</h1>
         </div>
         <form action={signOut}>
-          <button type="submit" className="flex items-center gap-2 text-sm font-medium text-[var(--ink-muted)] hover:text-[var(--ink)] bg-[var(--paper-warm)] hover:bg-[var(--paper-aged)] transition-colors px-4 py-2 rounded-full border border-[var(--border-soft)]">
+          <button type="submit" className="flex items-center gap-2 text-sm font-medium text-[var(--ink-muted)] hover:text-[var(--ink)] bg-[var(--paper-warm)] hover:bg-[var(--paper-aged)] transition-colors px-3 md:px-4 py-2 rounded-full border border-[var(--border-soft)]">
             <LogOut size={15} />
-            <span>Sign Out</span>
+            <span className="hidden sm:inline">Sign Out</span>
           </button>
         </form>
       </header>
 
-      {/* Main Split-View */}
-      <main className="flex h-[calc(100vh-73px)]">
-        {/* Left Panel */}
-        <aside className="w-80 flex-shrink-0 border-r border-[var(--border-soft)] p-6 overflow-y-auto">
+      {/* Main Layout */}
+      <main className="flex flex-col md:flex-row h-[calc(100vh-65px)] md:h-[calc(100vh-73px)]">
+        {/* Sidebar — collapsible on mobile */}
+        <aside className={`
+          ${sidebarOpen ? 'block' : 'hidden'} md:block
+          w-full md:w-80 flex-shrink-0 border-b md:border-b-0 md:border-r border-[var(--border-soft)] p-4 md:p-6 overflow-y-auto
+          bg-[var(--paper)] md:bg-transparent
+          ${sidebarOpen ? 'absolute z-30 top-[65px] left-0 right-0 bottom-0 md:relative md:top-auto md:z-auto' : ''}
+        `}>
           <div className="bg-[var(--surface-raised)] rounded-2xl p-5 shadow-paper">
             <CalendarHeader month={month} year={year} onPrev={prevMonth} onNext={nextMonth} />
-            <CalendarGrid year={year} month={month} selectedDay={selectedDay} onSelect={setSelectedDay} />
+            <CalendarGrid year={year} month={month} selectedDay={selectedDay} onSelect={(d) => { setSelectedDay(d); setSidebarOpen(false) }} />
+          </div>
+          <div className="mt-5">
+            <ThemePicker currentTheme={theme} onSelect={handleThemeChange} />
           </div>
         </aside>
 
-        {/* Right Panel */}
-        <section className="flex-1 p-8 overflow-y-auto">
-          <div className="max-w-2xl mx-auto h-full bg-[var(--surface-raised)] rounded-2xl p-8 shadow-paper relative overflow-hidden">
-            <DailyCanvas day={selectedDay} month={month} year={year} />
+        {/* Right Panel — Page Flip Animation */}
+        <section className="flex-1 p-4 md:p-8 overflow-y-auto">
+          <div className="max-w-2xl mx-auto h-full bg-[var(--surface-raised)] rounded-2xl p-5 md:p-8 shadow-paper relative overflow-hidden" style={{ perspective: '1200px' }}>
+            <AnimatePresence mode="wait">
+              <motion.div key={`${year}-${month}-${selectedDay}`} variants={pageFlip} initial="initial" animate="animate" exit="exit" className="h-full">
+                <DailyCanvas day={selectedDay} month={month} year={year} />
+              </motion.div>
+            </AnimatePresence>
           </div>
         </section>
       </main>

@@ -138,3 +138,36 @@ export async function removeSticker(id: string) {
   const supabase = await createClient()
   await supabase.from('sticker_placements').delete().eq('id', id)
 }
+
+// ---- User Preferences ----
+
+export async function getTheme() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return 'cream'
+
+  const { data } = await supabase
+    .from('user_preferences')
+    .select('theme')
+    .eq('user_id', user.id)
+    .single()
+
+  return data?.theme || 'cream'
+}
+
+export async function saveTheme(theme: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data } = await supabase
+    .from('user_preferences')
+    .upsert(
+      { user_id: user.id, theme, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
+    .select()
+    .single()
+
+  return data
+}
