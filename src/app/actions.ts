@@ -2,6 +2,19 @@
 
 import { createClient } from '@/lib/supabase/server'
 
+// ---- Types ----
+
+export interface EventData {
+  id?: string
+  date: string
+  title: string
+  description?: string
+  location?: string
+  start_time?: string | null
+  end_time?: string | null
+  time?: string
+}
+
 // ---- Events ----
 
 export async function getEvents(date: string) {
@@ -14,47 +27,102 @@ export async function getEvents(date: string) {
     .select('*')
     .eq('user_id', user.id)
     .eq('date', date)
-    .order('time')
+    .order('start_time', { ascending: true, nullsFirst: false })
 
   return data || []
 }
 
-export async function upsertEvent(date: string, time: string, title: string) {
+export async function getEventsForMonth(year: number, month: number) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`
+  const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${new Date(year, month + 1, 0).getDate()}`
+
+  const { data } = await supabase
+    .from('events')
+    .select('*')
+    .eq('user_id', user.id)
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('start_time', { ascending: true, nullsFirst: false })
+
+  return data || []
+}
+
+export async function getEventsForYear(year: number) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const startDate = `${year}-01-01`
+  const endDate = `${year}-12-31`
+
+  const { data } = await supabase
+    .from('events')
+    .select('id, date, title')
+    .eq('user_id', user.id)
+    .gte('date', startDate)
+    .lte('date', endDate)
+
+  return data || []
+}
+
+export async function upsertEvent(event: EventData) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  // Check if event exists for this time slot
-  const { data: existing } = await supabase
-    .from('events')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('date', date)
-    .eq('time', time)
-    .single()
-
-  if (existing) {
-    if (title.trim() === '') {
-      await supabase.from('events').delete().eq('id', existing.id)
-      return null
-    }
+  if (event.id) {
+    // Update existing
     const { data } = await supabase
       .from('events')
-      .update({ title })
-      .eq('id', existing.id)
+      .update({
+        title: event.title,
+        description: event.description || '',
+        location: event.location || '',
+        start_time: event.start_time || null,
+        end_time: event.end_time || null,
+        time: event.start_time || event.time || '',
+      })
+      .eq('id', event.id)
+      .eq('user_id', user.id)
       .select()
       .single()
     return data
   }
 
-  if (title.trim() === '') return null
-
+  // Insert new
   const { data } = await supabase
     .from('events')
-    .insert({ user_id: user.id, date, time, title })
+    .insert({
+      user_id: user.id,
+      date: event.date,
+      title: event.title,
+      description: event.description || '',
+      location: event.location || '',
+      start_time: event.start_time || null,
+      end_time: event.end_time || null,
+      time: event.start_time || event.time || '',
+    })
     .select()
     .single()
   return data
+}
+
+export async function deleteEvent(id: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  return !error
 }
 
 // ---- Journal ----
