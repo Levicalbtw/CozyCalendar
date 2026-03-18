@@ -14,9 +14,10 @@ function getFirstDayOfMonth(y: number, m: number) { return new Date(y, m, 1).get
 interface YearlyViewProps {
   year: number
   onDayClick: (day: number, month: number, year: number) => void
+  onMonthClick: (month: number, year: number) => void
 }
 
-export default function YearlyView({ year, onDayClick }: YearlyViewProps) {
+export default function YearlyView({ year, onDayClick, onMonthClick }: YearlyViewProps) {
   const [currentYear, setCurrentYear] = useState(year)
   const [eventCounts, setEventCounts] = useState<Record<string, number>>({})
 
@@ -66,10 +67,14 @@ export default function YearlyView({ year, onDayClick }: YearlyViewProps) {
               transition={{ delay: m * 0.03, duration: 0.3 }}
               className="yearly-month"
             >
-              <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 text-center
-                ${isCurrentMonth ? 'text-[var(--terracotta)]' : 'text-[var(--ink-muted)]'}`}>
+              <button
+                onClick={() => onMonthClick(m, currentYear)}
+                className={`block w-full text-xs font-bold uppercase tracking-wider mb-2 text-center cursor-pointer
+                  hover:text-[var(--terracotta)] transition-colors rounded-lg py-1 hover:bg-[var(--paper-aged)]
+                  ${isCurrentMonth ? 'text-[var(--terracotta)]' : 'text-[var(--ink-muted)]'}`}
+              >
                 {MONTHS[m]}
-              </h3>
+              </button>
               <div className="grid grid-cols-7 gap-px">
                 {DAYS_SHORT.map((d, i) => (
                   <div key={`h-${i}`} className="text-center text-[8px] text-[var(--ink-faint)] font-medium py-0.5">{d}</div>

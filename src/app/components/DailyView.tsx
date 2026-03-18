@@ -2,14 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Feather, Plus, Sticker, Trash2, MapPin, Clock } from 'lucide-react'
-import { getEvents, upsertEvent, deleteEvent, getJournal, saveJournal, getStickers, addSticker, updateStickerPosition, removeSticker, EventData } from '../actions'
+import { Feather, Plus, Sticker, Trash2, MapPin, Clock, Upload, X, Image as ImageIcon } from 'lucide-react'
+import { getEvents, upsertEvent, deleteEvent, getJournal, saveJournal, getStickers, addSticker, updateStickerPosition, removeSticker, getCustomStickers, uploadCustomSticker, deleteCustomSticker, EventData } from '../actions'
 import EventModal from './EventModal'
 
 const STICKER_PALETTE = ['☕','🌿','🌸','📚','✨','🎵','🍂','🕯️','🌙','💌','🧸','🎨','📝','🍰','🌻','🦋']
 const MOODS = ['☀️ Bright', '🌧️ Mellow', '🌿 Calm', '🔥 Energized', '🌙 Quiet']
 
 interface StickerPlacement { id: string; sticker_name: string; x: number; y: number }
+interface CustomSticker { id: string; name: string; image_url: string }
 
 function formatTimeDisplay(time: string | null | undefined): string {
   if (!time) return ''
@@ -29,6 +30,83 @@ interface DailyViewProps {
   year: number
 }
 
+// Individual sticker component that manages its own drag position
+function DraggableSticker({ sticker, containerRef, onDragEnd, onRemove }: {
+  sticker: StickerPlacement
+  containerRef: React.RefObject<HTMLDivElement | null>
+  onDragEnd: (id: string, x: number, y: number) => void
+  onRemove: (id: string) => void
+}) {
+  const isCustomImage = sticker.sticker_name.startsWith('data:') || sticker.sticker_name.startsWith('http')
+
+  // Calculate initial pixel position from percentage
+  const getPixelPos = useCallback(() => {
+    const el = containerRef.current
+    if (!el) return { x: 0, y: 0 }
+    const rect = el.getBoundingClientRect()
+    return {
+      x: (sticker.x / 100) * rect.width,
+      y: (sticker.y / 100) * rect.height,
+    }
+  }, [sticker.x, sticker.y, containerRef])
+
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const initialized = useRef(false)
+
+  useEffect(() => {
+    // Set initial position once container is available
+    const timer = setTimeout(() => {
+      setPos(getPixelPos())
+      initialized.current = true
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [getPixelPos])
+
+  return (
+    <motion.div
+      drag
+      dragMomentum={false}
+      dragConstraints={containerRef}
+      initial={false}
+      animate={initialized.current ? undefined : pos}
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        x: pos.x,
+        y: pos.y,
+        zIndex: 20,
+      }}
+      onDragEnd={(_, info) => {
+        const el = containerRef.current
+        if (!el) return
+        const rect = el.getBoundingClientRect()
+        const newX = Math.max(0, Math.min(100, (info.point.x - rect.left) / rect.width * 100))
+        const newY = Math.max(0, Math.min(100, (info.point.y - rect.top) / rect.height * 100))
+        setPos({
+          x: (newX / 100) * rect.width,
+          y: (newY / 100) * rect.height,
+        })
+        onDragEnd(sticker.id, newX, newY)
+      }}
+      className="cursor-grab active:cursor-grabbing group"
+    >
+      {isCustomImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={sticker.sticker_name} alt="Custom sticker" className="w-12 h-12 object-contain select-none pointer-events-none" draggable={false} />
+      ) : (
+        <span className="text-3xl select-none pointer-events-none">{sticker.sticker_name}</span>
+      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); onRemove(sticker.id) }}
+        className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-[var(--terracotta)] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <Trash2 size={10} />
+      </button>
+    </motion.div>
+  )
+}
+
 export default function DailyView({ day, month, year }: DailyViewProps) {
   const dateStr = formatDate(year, month, day)
   const dateLabel = new Date(year, month, day).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -38,9 +116,13 @@ export default function DailyView({ day, month, year }: DailyViewProps) {
   const [journal, setJournal] = useState('')
   const [mood, setMood] = useState<string | null>(null)
   const [stickers, setStickers] = useState<StickerPlacement[]>([])
+  const [customStickers, setCustomStickers] = useState<CustomSticker[]>([])
   const [showPalette, setShowPalette] = useState(false)
+  const [paletteTab, setPaletteTab] = useState<'emoji' | 'custom'>('emoji')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEvent, setEditingEvent] = useState<EventData | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Refs for auto-save on unmount
   const journalRef = useRef(journal)
@@ -58,15 +140,17 @@ export default function DailyView({ day, month, year }: DailyViewProps) {
   useEffect(() => {
     hasLoadedRef.current = false
     const loadData = async () => {
-      const [evts, jrnl, stks] = await Promise.all([
+      const [evts, jrnl, stks, customStks] = await Promise.all([
         getEvents(dateStr),
         getJournal(dateStr),
-        getStickers(dateStr)
+        getStickers(dateStr),
+        getCustomStickers(),
       ])
       setEvents(evts as EventData[])
       setJournal(jrnl?.content || '')
       setMood(jrnl?.mood || null)
       setStickers(stks as StickerPlacement[])
+      setCustomStickers(customStks as CustomSticker[])
       hasLoadedRef.current = true
     }
     loadData()
@@ -132,8 +216,11 @@ export default function DailyView({ day, month, year }: DailyViewProps) {
   }
 
   // Sticker handlers
-  async function handleAddSticker(emoji: string) {
-    const result = await addSticker(dateStr, emoji, 50, 50)
+  async function handleAddSticker(stickerName: string) {
+    // Place at a slightly random position near center
+    const x = 40 + Math.random() * 20
+    const y = 30 + Math.random() * 20
+    const result = await addSticker(dateStr, stickerName, x, y)
     if (result) setStickers(prev => [...prev, result as StickerPlacement])
     setShowPalette(false)
   }
@@ -148,23 +235,55 @@ export default function DailyView({ day, month, year }: DailyViewProps) {
     setStickers(prev => prev.filter(s => s.id !== id))
   }
 
+  // Custom sticker upload
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate file
+    if (!file.type.startsWith('image/')) return
+    if (file.size > 500 * 1024) return // 500KB max
+
+    setUploading(true)
+    try {
+      // Convert to base64 data URL
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target?.result as string
+        const name = file.name.replace(/\.[^/.]+$/, '')
+        const result = await uploadCustomSticker(name, dataUrl)
+        if (result) {
+          setCustomStickers(prev => [result as CustomSticker, ...prev])
+        }
+        setUploading(false)
+      }
+      reader.readAsDataURL(file)
+    } catch {
+      setUploading(false)
+    }
+
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function handleDeleteCustomSticker(id: string) {
+    const success = await deleteCustomSticker(id)
+    if (success) {
+      setCustomStickers(prev => prev.filter(s => s.id !== id))
+    }
+  }
+
   return (
-    <div className="h-full flex flex-col relative" ref={canvasRef}>
+    <div className="h-full flex flex-col relative overflow-hidden" ref={canvasRef}>
       {/* Stickers */}
       {stickers.map(s => (
-        <motion.div key={s.id} drag dragMomentum={false}
-          onDragEnd={(_, info) => {
-            const el = canvasRef.current; if (!el) return
-            const rect = el.getBoundingClientRect()
-            handleStickerDragEnd(s.id, ((info.point.x - rect.left) / rect.width) * 100, ((info.point.y - rect.top) / rect.height) * 100)
-          }}
-          initial={{ x: 0, y: 0 }}
-          style={{ position: 'absolute', left: `${s.x}%`, top: `${s.y}%`, transform: 'translate(-50%, -50%)', zIndex: 20 }}
-          className="cursor-grab active:cursor-grabbing group">
-          <span className="text-3xl select-none">{s.sticker_name}</span>
-          <button onClick={() => handleRemoveSticker(s.id)}
-            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-[var(--terracotta)] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={10} /></button>
-        </motion.div>
+        <DraggableSticker
+          key={s.id}
+          sticker={s}
+          containerRef={canvasRef}
+          onDragEnd={handleStickerDragEnd}
+          onRemove={handleRemoveSticker}
+        />
       ))}
 
       {/* Date Header */}
@@ -256,18 +375,106 @@ export default function DailyView({ day, month, year }: DailyViewProps) {
       {/* Sticker Palette */}
       <AnimatePresence>
         {showPalette && (
-          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute bottom-4 right-4 bg-[var(--surface-raised)] rounded-2xl shadow-sticker border border-[var(--border-soft)] p-4 z-30 w-52">
-            <p className="font-hand text-sm text-[var(--ink-muted)] mb-2">Pick a sticker</p>
-            <div className="grid grid-cols-4 gap-2">
-              {STICKER_PALETTE.map(emoji => <button key={emoji} onClick={() => handleAddSticker(emoji)} className="text-2xl hover:scale-125 transition-transform w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[var(--paper-warm)]">{emoji}</button>)}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 10 }}
+            className="absolute bottom-16 right-4 bg-[var(--surface-raised)] rounded-2xl shadow-sticker border border-[var(--border-soft)] p-4 z-30 w-60"
+          >
+            {/* Close button */}
+            <div className="flex items-center justify-between mb-3">
+              <p className="font-hand text-sm text-[var(--ink-muted)]">Stickers</p>
+              <button onClick={() => setShowPalette(false)} className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-[var(--paper-aged)] text-[var(--ink-muted)]">
+                <X size={14} />
+              </button>
             </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 mb-3 bg-[var(--paper-warm)] rounded-lg p-0.5">
+              <button
+                onClick={() => setPaletteTab('emoji')}
+                className={`flex-1 text-[10px] font-semibold py-1.5 rounded-md transition-colors ${
+                  paletteTab === 'emoji' ? 'bg-[var(--surface-raised)] text-[var(--ink)] shadow-sm' : 'text-[var(--ink-muted)]'
+                }`}
+              >
+                😊 Emoji
+              </button>
+              <button
+                onClick={() => setPaletteTab('custom')}
+                className={`flex-1 text-[10px] font-semibold py-1.5 rounded-md transition-colors ${
+                  paletteTab === 'custom' ? 'bg-[var(--surface-raised)] text-[var(--ink)] shadow-sm' : 'text-[var(--ink-muted)]'
+                }`}
+              >
+                🖼️ Custom
+              </button>
+            </div>
+
+            {paletteTab === 'emoji' ? (
+              <div className="grid grid-cols-4 gap-2">
+                {STICKER_PALETTE.map(emoji => (
+                  <button key={emoji} onClick={() => handleAddSticker(emoji)}
+                    className="text-2xl hover:scale-125 transition-transform w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[var(--paper-warm)]">{emoji}</button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                {/* Upload button */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-[var(--border-soft)] hover:border-[var(--blush)] transition-colors mb-3 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                >
+                  {uploading ? (
+                    <span>Uploading…</span>
+                  ) : (
+                    <>
+                      <Upload size={14} />
+                      <span>Upload Image</span>
+                    </>
+                  )}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <p className="text-[9px] text-[var(--ink-faint)] mb-3 text-center">PNG, JPG, GIF · Max 500KB</p>
+
+                {/* Custom sticker grid */}
+                {customStickers.length === 0 ? (
+                  <p className="text-[10px] text-[var(--ink-faint)] text-center py-2 italic">No custom stickers yet</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 max-h-[120px] overflow-y-auto">
+                    {customStickers.map(cs => (
+                      <div key={cs.id} className="relative group">
+                        <button
+                          onClick={() => handleAddSticker(cs.image_url)}
+                          className="w-10 h-10 rounded-lg hover:bg-[var(--paper-warm)] flex items-center justify-center overflow-hidden transition-colors"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={cs.image_url} alt={cs.name} className="w-8 h-8 object-contain" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCustomSticker(cs.id)}
+                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[var(--terracotta)] text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={8} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
       <button onClick={() => setShowPalette(!showPalette)}
-        className="absolute bottom-4 right-4 z-20 w-12 h-12 rounded-full bg-[var(--honey)] text-white flex items-center justify-center shadow-sticker hover:bg-[var(--terracotta)] transition-colors"
-        style={showPalette ? { right: '15.5rem' } : {}}><Sticker size={20} /></button>
+        className="absolute bottom-4 right-4 z-20 w-12 h-12 rounded-full bg-[var(--honey)] text-white flex items-center justify-center shadow-sticker hover:bg-[var(--terracotta)] transition-colors">
+        <Sticker size={20} />
+      </button>
 
       {/* Event Modal */}
       <EventModal

@@ -239,3 +239,47 @@ export async function saveTheme(theme: string) {
 
   return data
 }
+
+// ---- Custom Stickers ----
+
+export async function getCustomStickers() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data } = await supabase
+    .from('custom_stickers')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+
+  return data || []
+}
+
+export async function uploadCustomSticker(name: string, imageUrl: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data } = await supabase
+    .from('custom_stickers')
+    .insert({ user_id: user.id, name, image_url: imageUrl })
+    .select()
+    .single()
+
+  return data
+}
+
+export async function deleteCustomSticker(id: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+
+  const { error } = await supabase
+    .from('custom_stickers')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  return !error
+}

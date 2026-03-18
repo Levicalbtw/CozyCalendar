@@ -156,6 +156,13 @@ export default function Home() {
     setSidebarOpen(false)
   }
 
+  // Navigate to a specific month from yearly view
+  function navigateToMonth(m: number, y: number) {
+    setYear(y)
+    setMonth(m)
+    setCurrentView('monthly')
+  }
+
   const mobileViewIcons = [
     { id: 'daily' as ViewType, icon: Calendar, label: 'Daily' },
     { id: 'monthly' as ViewType, icon: LayoutGrid, label: 'Monthly' },
@@ -242,7 +249,7 @@ export default function Home() {
                   exit="exit"
                   className="h-full"
                 >
-                  <YearlyView year={year} onDayClick={navigateToDay} />
+                  <YearlyView year={year} onDayClick={navigateToDay} onMonthClick={navigateToMonth} />
                 </motion.div>
               )}
             </AnimatePresence>
